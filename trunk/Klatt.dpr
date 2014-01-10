@@ -1,5 +1,10 @@
 program Klatt;
 
+{
+  Description : Klatt synthesizer
+  Author      : Wouter van Nifterick
+}
+
 {$APPTYPE CONSOLE}
 
 {$R *.res}
@@ -8,9 +13,6 @@ uses
   SysUtils,
   WvN.Util.CmdLine,
   Klatt.ParWave in 'Klatt.ParWave.pas';
-
-const NUMBER_OF_SAMPLES = 100;
-const SAMPLE_FACTOR = 0.00001;
 
 procedure Usage;
 begin
@@ -38,41 +40,41 @@ begin
   Writeln('   low byte first.');
 end;
 
-const
-  natural_samples: array[0..NUMBER_OF_SAMPLES-1] of integer=
-  (
-    -310,-400,530,356,224,89,23,-10,-58,-16,461,599,536,701,770,
-    605,497,461,560,404,110,224,131,104,-97,155,278,-154,-1165,
-    -598,737,125,-592,41,11,-247,-10,65,92,80,-304,71,167,-1,122,
-    233,161,-43,278,479,485,407,266,650,134,80,236,68,260,269,179,
-    53,140,275,293,296,104,257,152,311,182,263,245,125,314,140,44,
-    203,230,-235,-286,23,107,92,-91,38,464,443,176,98,-784,-2449,
-    -1891,-1045,-1600,-1462,-1384,-1261,-949,-730
-  );
+type
+  TAppSettings=record
+    InFileName    ,
+    OutFileName   ,
+    SampeFileName : string;
+    MsPerFrame    : Integer;
+    DoOutputRawSample : Boolean;
+    OutputByteOrder   : byte;
+  end;
+
+procedure InitAppSettings(var AppSettings: TAppSettings);
+begin
+  AppSettings := default(TAppSettings);
+  AppSettings.InFileName := '';
+  AppSettings.OutFileName := '';
+  AppSettings.SampeFileName := '';
+  AppSettings.MsPerFrame := 10;
+  AppSettings.DoOutputRawSample := FALSE;
+end;
 
 procedure Main;
 var
-  InFileName    ,
-  OutFileName   ,
-  SampeFileName : string;
   InFile        : TextFile;
   OutFile       : File of byte;
-  value         : LongWord;
-  FrameSamples  : TArray<single>;
-  FrameSampleIndex ,
-  FrameIndex    ,
-  ParIndex      ,
-  MsPerFrame    : Integer;
   Globals       : TKlattGlobal;
   Frame         : TKlattFrame;
   FrameParamPtr : ^Integer;
   high_byte     ,
   low_byte      : byte;
-  raw_flag      : Boolean;
-  raw_type      : byte;
-  loop          : Integer;
+  value         : LongWord;
+  FrameSamples  : TArray<single>;
+  FrameSampleIndex ,
+  ParIndex      : Integer;
   Sample        : Integer;
-
+  AppSettings:TAppSettings;
 begin
   if(ParamCount=0) then
   begin
@@ -80,50 +82,37 @@ begin
     halt(1);
   end;
 
-  InFileName       := '';
-  OutFileName      := '';
-  SampeFileName := '';
+  InitAppSettings(AppSettings);
 
-  SetLength(FrameSamples, MAX_SAM);
+  SetLength(FrameSamples, cMaxSampleRateHz);
 
-  Frame   := default (TKlattFrame);
-  Globals := default (TKlattGlobal);
+  Frame := default (TKlattFrame);
 
-  Globals.quiet_flag      := FALSE;
-  Globals.synthesis_model := ALL_PARALLEL;
-  Globals.samrate         := 10000;
-  Globals.glsource        := NATURAL;
-  // globals.natural_samples := natural_samples;
-  Globals.num_samples     := NUMBER_OF_SAMPLES;
-  Globals.SAMPLE_FACTOR   := SAMPLE_FACTOR;
-  MsPerFrame               := 10;
-  Globals.nfcascade       := 0;
-  Globals.outsl           := 0;
-  Globals.f0_flutter      := 0;
-  raw_flag                := FALSE;
+  GlobalsInit(Globals);
+
 
   CommandLine.ProcessKeys( procedure(const key:char; const name,value:string )
     begin
       case Key of
-        'i': InFileName := Value;
-        'o': OutFileName := Value;
-        'q': Globals.quiet_flag := TRUE;
-        't': Globals.outsl := StrToInt(Value);
+        'i': AppSettings.InFileName := Value;
+        'o': AppSettings.OutFileName := Value;
+        'q': Globals.quiet := TRUE;
+        't': Globals.outsl := TOutputChannel(StrToInt(Value));
         'c': begin Globals.synthesis_model := CASCADE_PARALLEL; Globals.nfcascade := 5; end;
         's': Globals.samrate := StrToInt(Value);
-        'f': MsPerFrame := StrToInt(Value);
-        'v': Globals.glsource := StrToInt(Value);
-        'V': SampeFileName := Value;
+        'f': AppSettings.MsPerFrame := StrToInt(Value);
+//      'v': Globals.glsource :=  StrToInt(Value);
+        'V': AppSettings.SampeFileName := Value;
         'h': begin usage(); halt(1); end;
         'n': Globals.nfcascade := StrToInt(Value);
         'F': Globals.f0_flutter := StrToInt(Value);
-        'r': begin raw_flag := TRUE; raw_type := StrToInt(Value); end;
+        'r': begin AppSettings.DoOutputRawSample := TRUE; AppSettings.OutputByteOrder := StrToInt(Value); end;
       end;
     end
   );
+  Globals.SamplesPerFrame := Round((Globals.samrate * AppSettings.MsPerFrame) / 1000);
 
-  Globals.nspfr := Round((Globals.samrate * MsPerFrame) / 1000);
-
+  {
   if SampeFileName <> '' then
   begin
     AssignFile(InFile, SampeFileName);
@@ -131,35 +120,35 @@ begin
     read(InFile, Globals.num_samples);
     read(InFile, Globals.SAMPLE_FACTOR);
     SetLength(Globals.natural_samples, length(natural_samples));
-    for loop := 0 to Globals.num_samples - 1 do
-      read(InFile, Globals.natural_samples[loop]);
+    for I := 0 to Globals.num_samples - 1 do
+      read(InFile, Globals.natural_samples[I]);
     CloseFile(InFile);
   end;
+  }
 
-  if InFileName = '' then
+  if AppSettings.InFileName = '' then
   begin
     Writeln('Error: No inputfile given');
     Halt(2);
   end;
 
-  AssignFile(InFile, InFileName);
+  AssignFile(InFile, AppSettings.InFileName);
   Reset(InFile);
 
-  if OutFileName = '' then
-    Globals.quiet_flag := TRUE
+  if AppSettings.OutFileName = '' then
+    Globals.quiet := TRUE
   else
   begin
-    AssignFile(OutFile, OutFileName);
+    AssignFile(OutFile, AppSettings.OutFileName);
     Rewrite(OutFile);
   end;
 
-  FrameIndex    := 0;
-  parwave_init(Globals);
+  InitParWave(Globals);
 
   while not Eof(InFile) do
   begin
     FrameParamPtr := @Frame;
-    for ParIndex := 1 to NPAR do
+    for ParIndex := 1 to cNumberOfParameters do
     begin
       read(InFile, value);
       FrameParamPtr^ := value;
@@ -168,19 +157,16 @@ begin
 
     ParWave(Globals, Frame, FrameSamples);
 
-    if (Globals.quiet_flag = FALSE) then
-      Writeln(format('Frame %d', [FrameIndex]));
-
-    for FrameSampleIndex := 0 to Globals.nspfr-1 do
+    for FrameSampleIndex := 0 to Globals.SamplesPerFrame-1 do
     begin
       Sample := Round(FrameSamples[FrameSampleIndex]);
-      if raw_flag then
+      if AppSettings.DoOutputRawSample then
       begin
         Sample := Round((Sample / 2) + 32768) and $FFFF;
         low_byte  := Byte(Sample and $FF);
         high_byte := Byte(Sample shr 8);
 
-        if (raw_type = 1) then
+        if (AppSettings.OutputByteOrder = 1) then
         begin
           Write(OutFile, high_byte);
           Write(OutFile, low_byte);
@@ -194,25 +180,12 @@ begin
       else
         Writeln(format('%d', [FrameSamples[FrameSampleIndex]]));
     end;
-    Inc(FrameIndex);
   end;
 
-  if InFileName = '' then
-    CloseFile(InFile);
-
-  if OutFileName = '' then
-    CloseFile(OutFile);
-
-  if (Globals.quiet_flag = FALSE) then
-  begin
-    Writeln;
-    Writeln('Done');
-    Writeln;
-  end;
-
+  if AppSettings.InFileName = '' then CloseFile(InFile);
+  if AppSettings.OutFileName = '' then CloseFile(OutFile);
+  if (not Globals.quiet) then  Writeln('Done');
 end;
-
-
 
 begin
   try

@@ -11,13 +11,9 @@ uses System.SysUtils, Math, System.Generics.Collections;
 
 
 const
-  /// <summary>Number of control parameters</summary>
-  cNumberOfParameters = 40; //
-  cNumberOfSamples    = 100;
   cMaxSampleRateHz    = 20000; // Maximum sample rate
-  cSampleFactor       = 0.00001;
 
-  natural_samples: array[0..cNumberOfSamples-1] of integer=
+  natural_samples: array[0..99] of integer=
   (
     -310,-400,530,356,224,89,23,-10,-58,-16,461,599,536,701,770,
     605,497,461,560,404,110,224,131,104,-97,155,278,-154,-1165,
@@ -30,18 +26,21 @@ const
 
 type
   TVoicingSource = (
-    IMPULSIVE        = 1,
-    NATURAL          = 2,
-    SAMPLED          = 3
+    Impulsive        = 1,
+    Natural          = 2,
+    Sampled          = 3
   );
 
   TSynthesisModel = (
-    CASCADE_PARALLEL = 1,
-    ALL_PARALLEL     = 2
+    CascadeParallel = 1,
+    AllParallel     = 2
   );
 
   TResonator = record
-    a, b, c, p1, p2: double;
+    a, b, c: double;
+    p:array[1..2] of double;
+    function Resonate(input: Single): Single;
+    function AntiResonate(aInput: Single): Single;
   end;
 
   TOutputChannel=(
@@ -55,71 +54,19 @@ type
      OutputSourc
   );
 
-
-  flag = Byte;
-
-type
-  /// <summary>Structure for Klatt Globals</summary>
-  TKlattGlobal = record
-  public
-    synthesis_model: TSynthesisModel; // cascade-parallel or all-parallel
-    outsl          : TOutputChannel;  // Output waveform selector
-    samrate        : integer;         // Number of output samples per second
-    FLPhz          : integer;         // Frequeny of glottal downsample low-pass filter
-    BLPhz          : integer;         // Bandwidth of glottal downsample low-pass filter
-    nfcascade      : integer;         // Number of formants in cascade vocal tract
-    VoicingSource  : TVoicingSource;  // Type of glottal source
-    f0_flutter     : integer;         // Percentage of f0 flutter 0-100
-    quiet          : boolean;         // set to TRUE for error messages
-    SamplesPerFrame: integer;         // number of samples per frame
-    nper           : integer;         // Counter for number of samples in a pitch period
-    current_sample : integer;         //
-    T0             : integer;         // Fundamental period in output samples times 4
-    nopen          : integer;         // Number of samples in open phase of period
-    nmod           : integer;         // Position in period to begin noise amp. modul
-    nrand          : integer;         // Varible used by random number generator
-    pulse_shape_a  : double;          // Makes waveshape of glottal pulse when open
-    pulse_shape_b  : double;          // Makes waveshape of glottal pulse when open
-    minus_pi_t     : double;
-    two_pi_t       : double;
-    onemd          : Single;
-    decay          : Single;
-    amp_bypas      : Single;           // AB converted to linear gain
-    amp_voice      : Single;           // AVdb converted to linear gain
-    par_amp_voice  : Single;           // AVpdb converted to linear gain
-    amp_aspir      : Single;           // AP converted to linear gain
-    amp_frica      : Single;           // AF converted to linear gain
-    amp_breth      : Single;           // ATURB converted to linear gain
-    amp_gain0      : Single;           // G0 converted to linear gain
-    num_samples    : integer;          // number of glottal samples
-    SAMPLE_FACTOR  : Single;           // multiplication factor for glottal samples
-    natural_samples: array of integer; // pointer to an array of glottal samples
-    original_f0    : integer;          // original value of f0 not modified by flutter
-    rnpp           : TResonator;       // internal storage for resonators
-    rp             : array [1 .. 6] of TResonator;
-    rc             : array [1 .. 8] of TResonator;
-    rnpc           : TResonator;
-    rnz            : TResonator;
-    rgl            : TResonator;
-    rlp            : TResonator;
-    rout           : TResonator;
-  end;
-
-  { Structure for Klatt Parameters }
-
 type
   TKlattFrame = record
   public
     /// <summary>Voicing fund freq in Hz          </summary><remarks>                         </remarks>
-    F0hz10: Integer;
+    F0Hz10: Integer;
     /// <summary>Amp of voicing in dB,            </summary><remarks>0 to   70                </remarks>
     AVdb  : Integer;
     /// <summary>First formant freq in Hz,        </summary><remarks>200 to 1300              </remarks>
-    F1hz  : Integer;
+    F1Hz  : Integer;
     /// <summary>First formant bw in Hz,          </summary><remarks>40 to 1000               </remarks>
-    B1hz  : Integer;
+    B1Hz  : Integer;
     /// <summary>Second formant freq in Hz,       </summary><remarks>550 to 3000              </remarks>
-    F2hz  : Integer;
+    F2Hz  : Integer;
     /// <summary>Second formant bw in Hz,         </summary><remarks>40 to 1000               </remarks>
     B2hz  : Integer;
     /// <summary>Third formant freq in Hz,        </summary><remarks>1200 to 4999             </remarks>
@@ -159,70 +106,166 @@ type
     /// <summary>Skewness of alternate periods,   </summary><remarks>0 to   40 in sample#/2   </remarks>
     Kskew : Integer;
     /// <summary>Amp of par 1st formant in dB,    </summary><remarks>0 to   80                </remarks>
-    A1    : Integer;
+    A1dB  : Integer;
     /// <summary>Par. 1st formant bw in Hz,       </summary><remarks>40 to 1000               </remarks>
     B1phz : Integer;
     /// <summary>Amp of F2 frication in dB,       </summary><remarks>0 to   80                </remarks>
-    A2    : Integer;
+    A2dB    : Integer;
     /// <summary>Par. 2nd formant bw in Hz,       </summary><remarks>40 to 1000               </remarks>
     B2phz : Integer;
     /// <summary>Amp of F3 frication in dB,       </summary><remarks>0 to   80                </remarks>
-    A3    : Integer;
+    A3dB    : Integer;
     /// <summary>Par. 3rd formant bw in Hz,       </summary><remarks>40 to 1000               </remarks>
     B3phz : Integer;
     /// <summary>Amp of F4 frication in dB,       </summary><remarks>0 to   80                </remarks>
-    A4    : Integer;
+    A4dB    : Integer;
     /// <summary>Par. 4th formant bw in Hz,       </summary><remarks>40 to 1000               </remarks>
     B4phz : Integer;
     /// <summary>Amp of F5 frication in dB,       </summary><remarks>0 to   80                </remarks>
-    A5    : Integer;
+    A5dB    : Integer;
     /// <summary>Par. 5th formant bw in Hz,       </summary><remarks>40 to 1000               </remarks>
     B5phz : Integer;
     /// <summary>Amp of F6 (same as rp[6]a),      </summary><remarks>  0 to   80              </remarks>
-    A6    : Integer;
+    A6dB    : Integer;
     /// <summary>Par. 6th formant bw in Hz,       </summary><remarks>40 to 2000               </remarks>
     B6phz : Integer;
     /// <summary>Amp of par nasal pole in dB,     </summary><remarks>0 to   80                </remarks>
-    ANP   : Integer;
+    ANPdB   : Integer;
     /// <summary>Amp of bypass fric. in dB,       </summary><remarks>0 to   80                </remarks>
     ByPassPathAmp : Integer;
     /// <summary>Amp of voicing,  par in dB,      </summary><remarks>0 to   70                </remarks>
-    AVpdb : Integer;
+    AVpdB : Integer;
     /// <summary>Overall gain, 60 dB is unity,    </summary><remarks>0 to   60                </remarks>
-    Gain0 : Integer;
+    Gain0dB : Integer;
   end;
 
-function DBtoLIN(db: Integer): Single;
-function LINtoDB(n:double):double;
-procedure ParWave(var globals: TKlattGlobal; var frame: TKlattFrame; var output: TArray<Single>);
-procedure InitParWave(var globals: TKlattGlobal);
-procedure GlobalsInit(var globals:TKlattGlobal);
-procedure InitFrame(var globals: TKlattGlobal; var frame: TKlattFrame);
+  /// <summary>Structure for Klatt Globals</summary>
+  TKlattSynth = class
+  public
+    SynthesisModel: TSynthesisModel; // cascade-parallel or all-parallel
+    OutputChannel  : TOutputChannel;  // Output waveform selector
+    SampleRateHz   : integer;         // Number of output samples per second
+    FLPhz          : integer;         // Frequeny of glottal downsample low-pass filter
+    BLPhz          : integer;         // Bandwidth of glottal downsample low-pass filter
+    nfcascade      : integer;         // Number of formants in cascade vocal tract
+    VoicingSource  : TVoicingSource;  // Type of glottal source
+    f0_flutter     : integer;         // Percentage of f0 flutter 0-100
+    Quiet          : boolean;         // set to TRUE for error messages
+    SamplesPerFrame: integer;         // number of samples per frame
+    nper           : integer;         // Counter for number of samples in a pitch period
+    CurrentSample  : integer;         //
+    T0             : integer;         // Fundamental period in output samples times 4
+    nopen          : integer;         // Number of samples in open phase of period
+    nmod           : integer;         // Position in period to begin noise amp. modul
+    nrand          : integer;         // Variable used by random number generator
+    pulse_shape_a  : double;          // Makes waveshape of glottal pulse when open
+    pulse_shape_b  : double;          // Makes waveshape of glottal pulse when open
+    minus_pi_t     : double;
+    two_pi_t       : double;
+    onemd          : Single;
+    Decay          : Single;
+    amp_bypas      : Single;           // AB converted to linear gain
+    amp_voice      : Single;           // AVdb converted to linear gain
+    amp_par_voice  : Single;           // AVpdb converted to linear gain
+    amp_aspir      : Single;           // AP converted to linear gain
+    amp_frica      : Single;           // AF converted to linear gain
+    amp_breth      : Single;           // ATURB converted to linear gain
+    amp_gain0      : Single;           // G0 converted to linear gain
+    NaturalSamples : array of integer; // pointer to an array of glottal samples
+    original_f0    : integer;          // original value of f0 not modified by flutter
+    rnpp           : TResonator;       // internal storage for resonators
+    rp             : array [1 .. 6] of TResonator;
+    rc             : array [1 .. 8] of TResonator;
+    rnpc           : TResonator;
+    rnz            : TResonator;
+    rgl            : TResonator;
+    rlp            : TResonator;
+    rout           : TResonator;
+
+    nlast          : Single; // last noise
+    TimeCount      : Integer;
+
+    Frames         : array of TKlattFrame;
+
+    constructor Create;
+    procedure InitParWave;
+
+    function GenerateNoise(aNoise: Single): Single;
+
+    var vwave: Single;
+    function ImpulsiveSource: Single;
+    var vwave2: Single;
+    function NaturalSource: Single;
+
+    procedure SetABC(
+      aResFrequencyHz: Integer; { Frequency of resonator in Hz }
+      aResBandWidthHz: Integer; { Bandwidth of resonator in Hz }
+      var aResonator: TResonator);
+
+    procedure SetZeroABC(
+      aResFreqHz      : Integer; { Frequency of resonator in Hz }
+      aResBandWidthHz : Integer; { Bandwidth of resonator in Hz }
+      var aResonator  : TResonator);
+
+
+    var
+      noise, voice, vlast, glotlast, sourc: Single;
+
+    procedure RenderParWave(var aFrame: TKlattFrame; var aOutput: TArray<Single>);
+    function Render:TArray<single>;
+
+    var  Skew: Integer;
+    procedure InitFrame(var aFrame: TKlattFrame);
+    procedure Flutter(var aFrame: TKlattFrame);
+    procedure pitch_synch_par_reset(var aFrame: TKlattFrame);
+
+    procedure LoadFromFile(const aFileName:String);
+  end;
+
+  { Structure for Klatt Parameters }
+
+function DBtoLIN(db: Integer):Single;
+function LINtoDB(n: double):double;
 
 implementation
 
-/// <summary>Initialize Globals variable</summary>
-procedure GlobalsInit(var globals:TKlattGlobal);
+/// <summary>
+///  Random number generator (return a number between -8191 and +8191)
+///  Noise spectrum is tilted down by soft low-pass filter having a pole nea,
+///
+///  the origin in the z-plane, i.e. output = input + (0.75 * lastoutput)
+/// </summary>
+function TKlattSynth.GenerateNoise(aNoise: Single): Single;
+var
+  temp: Integer;
 begin
-  Globals                 := default (TKlattGlobal);
-  Globals.quiet           := FALSE;
-  Globals.synthesis_model := TSynthesisModel.ALL_PARALLEL;
-  Globals.samrate         := 11025;
-  Globals.VoicingSource   := TVoicingSource.NATURAL;
-//  Globals.natural_samples := natural_samples;
-  Globals.num_samples     := cNumberOfSamples;
-  Globals.sample_factor   := cSampleFactor;
-  Globals.nfcascade       := 0;
-  Globals.outsl           := TOutputChannel.OutputNone;
-  Globals.f0_flutter      := 0;
+  temp   := {random(2 * 8191) - 8191}Round(((Random*2)-1)*1024*4);
+  nrand  := temp;
+  aNoise := nrand + (0.75 * nlast);
+  nlast  := aNoise;
+  Result := aNoise;
+end;
+
+/// <summary>Initialize Globals variable</summary>
+constructor TKlattSynth.Create;
+begin
+  Quiet           := False;
+  SynthesisModel  := TSynthesisModel.AllParallel;
+  SampleRateHz    := 11025;
+  VoicingSource   := TVoicingSource.Natural;
+//natural_samples := natural_samples;
+  nfcascade       := 0;
+  OutputChannel   := TOutputChannel.OutputNone;
+  f0_flutter      := 0;
+  Skew            := 0;
 end;
 
 function LINtoDB(n:double):double;
 begin
   if (n > 1E-12) then
-    Exit(LOG10(n) * 20.0)
+    Exit(LOG10(n) * 20)
   else
-    Exit(-200.0)
+    Exit(-200)
 end;
 
 function DBtoLIN(db: Integer): Single;
@@ -262,52 +305,6 @@ begin
   Result := AmpTable[db] * 0.001;
 end;
 
-var nlast: Single;
-
-/// <summary>
-///  Random number generator (return a number between -8191 and +8191)
-///  Noise spectrum is tilted down by soft low-pass filter having a pole nea,
-///
-///  the origin in the z-plane, i.e. output = input + (0.75 * lastoutput)
-/// </summary>
-function GenerateNoise(aNoise: Single; var aGlobals: TKlattGlobal): Single;
-var
-  temp: Integer;
-begin
-  temp          := random(2 * 8191) - 8191;
-  aGlobals.nrand := temp;
-  aNoise         := aGlobals.nrand + (0.75 * nlast);
-  nlast         := aNoise;
-  exit(aNoise);
-end;
-
-function Resonator(var r: TResonator; input: Single): Single;
-var
-  x: Single;
-begin
-  { This is a generic resonator function. Internal memory for the resonator,
-    is stored in the globals structure. }
-  x      := (r.a * input + r.b * r.p1 + r.c * r.p2);
-  r.p2   := r.p1;
-  r.p1   := x;
-  Result := x;
-end;
-
-function AntiResonator(var aResonator: TResonator; aInput: Single): Single;
-var
-  x: Single;
-begin
-  x := aResonator.a * aInput +
-       aResonator.b * aResonator.p1 +
-       aResonator.c * aResonator.p2;
-
-  aResonator.p2   := aResonator.p1;
-  aResonator.p1   := aInput;
-  Result := x;
-end;
-
-var
-  TimeCount: Integer;
 
 /// <summary>
 ///    This function adds F0 flutter, as specified in:
@@ -318,17 +315,16 @@ var
 ///    Flutter is added by applying a quasi-random element constructed from three
 ///    slowly varying sine waves.
 /// </summary>
-
-procedure Flutter(var aGlobals: TKlattGlobal; var aFrame: TKlattFrame);
+procedure TKlattSynth.Flutter(var aFrame: TKlattFrame);
 var delta_f0, fla, flb, flc, fld, fle: Double;
 begin
-  fla          := aGlobals.f0_flutter / 50;
-  flb          := aGlobals.original_f0 / 100;
-  flc          := sin(2 * PI * 12.7 * TimeCount);
-  fld          := sin(2 * PI * 7.1 * TimeCount);
-  fle          := sin(2 * PI * 4.7 * TimeCount);
-  delta_f0     := fla * flb * (flc + fld + fle) * 10;
-  aFrame.F0hz10 := aFrame.F0hz10 + Round(delta_f0);
+  fla           := f0_flutter / 50;
+  flb           := original_f0 / 100;
+  flc           := sin(2 * PI * 12.7 * TimeCount);
+  fld           := sin(2 * PI * 7.1 * TimeCount);
+  fle           := sin(2 * PI * 4.7 * TimeCount);
+  delta_f0      := fla * flb * (flc + fld + fle) * 10;
+  aFrame.F0Hz10 := aFrame.F0Hz10 + Round(delta_f0);
   Inc(TimeCount);
 end;
 
@@ -337,37 +333,35 @@ end;
 /// Convert formant freqencies and bandwidth into resonator difference
 /// equation constants.
 /// </summary>
-procedure SetABC(
+procedure TKlattSynth.SetABC(
   aResFrequencyHz: Integer; { Frequency of resonator in Hz }
   aResBandWidthHz: Integer; { Bandwidth of resonator in Hz }
-  var aResonator: TResonator;
-  var aGlobals: TKlattGlobal);
+  var aResonator: TResonator);
 var
   r  : Single;
   arg: Double;
 begin
   // Let r  =  exp(-pi bw t)
-  arg := aGlobals.minus_pi_t * aResBandWidthHz;
+  arg := minus_pi_t * aResBandWidthHz;
   r   := exp(arg);
 
   // Let c  =  -r**2
   aResonator.c := -(r * r);
 
   // Let b = r * 2*cos(2 pi f t)
-  arg  := aGlobals.two_pi_t * aResFrequencyHz;
-  aResonator.b := r * cos(arg) * 2.0;
+  arg  := two_pi_t * aResFrequencyHz;
+  aResonator.b := r * cos(arg) * 2;
 
-  // Let a = 1.0 - b - c
-  aResonator.a := 1.0 - aResonator.b - aResonator.c;
+  // Let a = 1 - b - c
+  aResonator.a := 1 - aResonator.b - aResonator.c;
 end;
 
 
 /// <summary>Convert formant freqencies and bandwidth into anti-resonator difference equation constants.</summary>
-procedure SetZeroABC(
+procedure TKlattSynth.SetZeroABC(
   aResFreqHz      : Integer; { Frequency of resonator in Hz }
   aResBandWidthHz : Integer; { Bandwidth of resonator in Hz }
-  var aResonator  : TResonator;
-  var aGlobals    : TKlattGlobal);
+  var aResonator  : TResonator);
 var
   r  : Single;
   arg: Double;
@@ -378,83 +372,84 @@ begin
 
   // First compute ordinary resonator coefficients
   // Let r  =  exp(-pi bw t)
-  arg := aGlobals.minus_pi_t * aResBandWidthHz;
+  arg := minus_pi_t * aResBandWidthHz;
   r   := exp(arg);
 
   // Let c  =  -r**2
   aResonator.c := -(r * r);
 
   // Let b = r * 2*cos(2 pi f t)
-  arg  := aGlobals.two_pi_t * aResFreqHz;
+  arg  := two_pi_t * aResFreqHz;
   aResonator.b := r * cos(arg) * 2.;
 
-  // Let a = 1.0 - b - c
-  aResonator.a := 1.0 - aResonator.b - aResonator.c;
+  // Let a = 1 - b - c
+  aResonator.a := 1 - aResonator.b - aResonator.c;
 
   // Now convert to antiresonator coefficients (a'=1/a, b'=b/a, c'=c/a)
-  aResonator.a := 1.0 / aResonator.a;
+  aResonator.a := 1 / aResonator.a;
   aResonator.c := aResonator.c * -aResonator.a;
   aResonator.b := aResonator.b * -aResonator.a;
 end;
 
 /// <summary>Initialises all parameters used in parwave, sets resonator internal memory to zero.</summary>
-procedure InitParWave(var globals: TKlattGlobal);
+procedure TKlattSynth.InitParWave;
+var i,j:integer;
 begin
-  globals.FLPhz      := Round((950 * globals.samrate) / 10000);
-  globals.BLPhz      := Round((630 * globals.samrate) / 10000);
-  globals.minus_pi_t := -PI / globals.samrate;
-  globals.two_pi_t   := -2.0 * globals.minus_pi_t;
-  SetABC(globals.FLPhz, globals.BLPhz, globals.rlp, globals);
-  globals.nper  := 0;
-  globals.T0    := 0;
-  globals.nopen := 0;
-  globals.nmod  := 0;
+  FLPhz      := Round((950 * SampleRateHz) / 10000);
+  BLPhz      := Round((630 * SampleRateHz) / 10000);
+  minus_pi_t := -PI / SampleRateHz;
+  two_pi_t   := -2 * minus_pi_t;
+  SetABC(FLPhz, BLPhz, rlp);
+  nper  := 0;
+  T0    := 0;
+  nopen := 0;
+  nmod  := 0;
 
-  globals.rnpp.p1 := 0;
-  globals.rp[1].p1  := 0;
-  globals.rp[2].p1  := 0;
-  globals.rp[3].p1  := 0;
-  globals.rp[4].p1  := 0;
-  globals.rp[5].p1  := 0;
-  globals.rp[6].p1  := 0;
-  globals.rc[1].p1  := 0;
-  globals.rc[2].p1  := 0;
-  globals.rc[3].p1  := 0;
-  globals.rc[4].p1  := 0;
-  globals.rc[5].p1  := 0;
-  globals.rc[6].p1  := 0;
-  globals.rc[7].p1  := 0;
-  globals.rc[8].p1  := 0;
-  globals.rnpc.p1 := 0;
-  globals.rnz.p1  := 0;
-  globals.rgl.p1  := 0;
-  globals.rlp.p1  := 0;
-  globals.rout.p1 := 0;
+  for I := 1 to 2 do
+  begin
+    rnpp. p[i]:= 0;
+    for j := 1 to 6 do
+      rp[j].p[i] := 0;
+    for j := 1 to 8 do
+      rc[j].p[i] := 0;
 
-  globals.rnpp.p2 := 0;
-  globals.rp[1].p2  := 0;
-  globals.rp[2].p2  := 0;
-  globals.rp[3].p2  := 0;
-  globals.rp[4].p2  := 0;
-  globals.rp[5].p2  := 0;
-  globals.rp[6].p2  := 0;
-  globals.rc[1].p2  := 0;
-  globals.rc[2].p2  := 0;
-  globals.rc[3].p2  := 0;
-  globals.rc[4].p2  := 0;
-  globals.rc[5].p2  := 0;
-  globals.rc[6].p2  := 0;
-  globals.rc[7].p2  := 0;
-  globals.rc[8].p2  := 0;
-  globals.rnpc.p2 := 0;
-  globals.rnz.p2  := 0;
-  globals.rgl.p2  := 0;
-  globals.rlp.p2  := 0;
-  globals.rout.p2 := 0;
+    rnpc. p[i] := 0;
+    rnz.  p[i] := 0;
+    rgl  .p[i] := 0;
+    rlp  .p[i] := 0;
+    rout .p[i] := 0;
+  end;
+end;
+
+procedure TKlattSynth.LoadFromFile(const aFileName: String);
+const
+  /// <summary>Number of control parameters</summary>
+  cNumberOfParameters = 40; //
+var
+  InFile        : TextFile;
+  FrameParamPtr : ^Integer;
+  ParIndex      : Integer;
+  Value         : Integer;
+begin
+  AssignFile(InFile, aFileName);
+  Reset(InFile);
+
+  while not Eof(InFile) do
+  begin
+    SetLength(Frames,Length(Frames)+1);
+    FrameParamPtr := @Frames[High(Frames)];
+    for ParIndex := 1 to cNumberOfParameters do
+    begin
+      read(InFile, value);
+      FrameParamPtr^ := value;
+      Inc(FrameParamPtr);
+    end;
+  end;
+  CloseFile(InFile);
 end;
 
 /// <summary>Use parameters from the input frame to set up resonator coefficients.</summary>
-procedure InitFrame(var globals: TKlattGlobal; var frame: TKlattFrame);
+procedure TKlattSynth.InitFrame(var aFrame: TKlattFrame);
 var
   amp_parF1,
   amp_parFNP,
@@ -464,61 +459,57 @@ var
   amp_parF5,
   amp_parF6: Single;
 begin
-  globals.original_f0 := Round(frame.F0hz10 / 10);
+  original_f0 := Round(aFrame.F0Hz10 / 10);
 
-  frame.AVdb := frame.AVdb - 7;
-  if (frame.AVdb < 0) then
-    frame.AVdb := 0;
+  aFrame.AVdb := aFrame.AVdb - 7;
+  if (aFrame.AVdb < 0) then
+    aFrame.AVdb := 0;
 
-  globals.amp_aspir     := DBtoLIN(frame.ASP) * 0.05;
-  globals.amp_frica     := DBtoLIN(frame.AF)  * 0.25;
-  globals.par_amp_voice := DBtoLIN(frame.AVpdb);
-  amp_parF1             := DBtoLIN(frame.A1) { * 0.4};
-  amp_parF2             := DBtoLIN(frame.A2) { * 0.150};
-  amp_parF3             := DBtoLIN(frame.A3) { * 0.060};
-  amp_parF4             := DBtoLIN(frame.A4) { * 0.040};
-  amp_parF5             := DBtoLIN(frame.A5) { * 0.022};
-  amp_parF6             := DBtoLIN(frame.A6) { * 0.030};
-  amp_parFNP            := DBtoLIN(frame.ANP){ * 0.60};
-  globals.amp_bypas     := DBtoLIN(frame.ByPassPathAmp) * 0.05;
-  frame.Gain0           := frame.Gain0 - 3;
-  if (frame.Gain0 <= 0) then
-    frame.Gain0 := 57;
+  amp_aspir     := DBtoLIN(aFrame.ASP) * 0.05;
+  amp_frica     := DBtoLIN(aFrame.AF)  * 0.25;
+  amp_par_voice := DBtoLIN(aFrame.AVpdB);
+  amp_parF1     := DBtoLIN(aFrame.A1dB) { * 0.4};
+  amp_parF2     := DBtoLIN(aFrame.A2dB) { * 0.150};
+  amp_parF3     := DBtoLIN(aFrame.A3dB) { * 0.060};
+  amp_parF4     := DBtoLIN(aFrame.A4dB) { * 0.040};
+  amp_parF5     := DBtoLIN(aFrame.A5dB) { * 0.022};
+  amp_parF6     := DBtoLIN(aFrame.A6dB) { * 0.030};
+  amp_parFNP    := DBtoLIN(aFrame.ANPdB){ * 0.60};
+  amp_bypas     := DBtoLIN(aFrame.ByPassPathAmp) * 0.05;
+  aFrame.Gain0dB           := aFrame.Gain0dB - 3;
+  if (aFrame.Gain0dB <= 0) then
+    aFrame.Gain0dB := 57;
 
-  globals.amp_gain0 := DBtoLIN(frame.Gain0);
+  amp_gain0 := DBtoLIN(aFrame.Gain0dB);
 
   // Set coefficients of variable cascade resonators
-  if (globals.nfcascade >= 8) then
-    SetABC(7500, 600, globals.rc[8], globals);
-  if (globals.nfcascade >= 7) then
-    SetABC(6500, 500, globals.rc[7], globals);
-  if (globals.nfcascade >= 6) then
-    SetABC(frame.F6hz, frame.B6hz, globals.rc[6], globals);
-  if (globals.nfcascade >= 5) then
-    SetABC(frame.F5hz, frame.B5hz, globals.rc[5], globals);
+  if (nfcascade >= 8) then SetABC(7500, 600, rc[8]);
+  if (nfcascade >= 7) then SetABC(6500, 500, rc[7]);
+  if (nfcascade >= 6) then SetABC(aFrame.F6hz, aFrame.B6hz, rc[6]);
+  if (nfcascade >= 5) then SetABC(aFrame.F5hz, aFrame.B5hz, rc[5]);
 
-  SetABC(frame.F4hz, frame.B4hz, globals.rc[4], globals);
-  SetABC(frame.F3hz, frame.B3hz, globals.rc[3], globals);
-  SetABC(frame.F2hz, frame.B2hz, globals.rc[2], globals);
-  SetABC(frame.F1hz, frame.B1hz, globals.rc[1], globals);
+  SetABC(aFrame.F4hz, aFrame.B4hz, rc[4]);
+  SetABC(aFrame.F3hz, aFrame.B3hz, rc[3]);
+  SetABC(aFrame.F2Hz, aFrame.B2hz, rc[2]);
+  SetABC(aFrame.F1Hz, aFrame.B1Hz, rc[1]);
 
   // Set coeficients of nasal resonator and zero antiresonato,
 
-  SetABC(frame.FNPhz, frame.BNPhz, globals.rnpc, globals);
-  SetZeroABC(frame.NasalZeroFrequency, frame.BNZhz, globals.rnz, globals);
+  SetABC(aFrame.FNPhz, aFrame.BNPhz, rnpc);
+  SetZeroABC(aFrame.NasalZeroFrequency, aFrame.BNZhz, rnz);
 
   // Set coefficients of parallel resonators, and amplitude of outputs
-  SetABC(frame.F1hz, frame.B1phz, globals.rp[1], globals);  globals.rp[1].a := globals.rp[1].a * amp_parF1;
-  SetABC(frame.FNPhz,frame.BNPhz, globals.rnpp,  globals);  globals.rnpp.a  := globals.rnpp.a * amp_parFNP;
-  SetABC(frame.F2hz, frame.B2phz, globals.rp[2], globals);  globals.rp[2].a := globals.rp[2].a * amp_parF2;
-  SetABC(frame.F3hz, frame.B3phz, globals.rp[3], globals);  globals.rp[3].a := globals.rp[3].a * amp_parF3;
-  SetABC(frame.F4hz, frame.B4phz, globals.rp[4], globals);  globals.rp[4].a := globals.rp[4].a * amp_parF4;
-  SetABC(frame.F5hz, frame.B5phz, globals.rp[5], globals);  globals.rp[5].a := globals.rp[5].a * amp_parF5;
-  SetABC(frame.F6hz, frame.B6phz, globals.rp[6], globals);  globals.rp[6].a := globals.rp[6].a * amp_parF6;
+  SetABC(aFrame.F1Hz, aFrame.B1phz, rp[1]);  rp[1].a := rp[1].a * amp_parF1;
+  SetABC(aFrame.FNPhz,aFrame.BNPhz, rnpp );  rnpp.a  := rnpp.a  * amp_parFNP;
+  SetABC(aFrame.F2Hz, aFrame.B2phz, rp[2]);  rp[2].a := rp[2].a * amp_parF2;
+  SetABC(aFrame.F3hz, aFrame.B3phz, rp[3]);  rp[3].a := rp[3].a * amp_parF3;
+  SetABC(aFrame.F4hz, aFrame.B4phz, rp[4]);  rp[4].a := rp[4].a * amp_parF4;
+  SetABC(aFrame.F5hz, aFrame.B5phz, rp[5]);  rp[5].a := rp[5].a * amp_parF5;
+  SetABC(aFrame.F6hz, aFrame.B6phz, rp[6]);  rp[6].a := rp[6].a * amp_parF6;
 
   // output low-pass filte,
 
-  SetABC(0, Round(globals.samrate / 2), globals.rout, globals);
+  SetABC(0, Round(SampleRateHz / 2), rout);
 end;
 
 /// <summary>
@@ -527,52 +518,41 @@ end;
 ///  with a critically-damped second-order filter, time constant proportional
 ///  to Kopen.
 /// </summary>
+function TKlattSynth.ImpulsiveSource: Single;
 const
-  doublet: array [0 .. 2] of Single = (0.0, 13000000.0, -13000000.0);
-var
-  vwave: Single;
-
-function ImpulsiveSource(var aGlobals: TKlattGlobal): Single;
+  doublet: array [0 .. 2] of Single = (0, 13000000, -13000000);
 begin
-  if (aGlobals.nper < 3) then
-    vwave := doublet[aGlobals.nper]
+  if (nper < 3) then
+    vwave := doublet[nper]
   else
-    vwave := 0.0;
+    vwave := 0;
 
-  Result := Resonator(aGlobals.rgl, vwave);
+  Result := rgl.Resonate(vwave);
 end;
 
-var vwave2: Single;
 /// <summary>
 ///  Vwave is the differentiated glottal flow waveform, there is a weak
 ///  spectral zero around 800 Hz, magic constants a,b reset pitch synchronously.
 /// </summary>
-function NaturalSource(var globals: TKlattGlobal): Single;
+function TKlattSynth.NaturalSource: Single;
 var
   lgtemp: Single;
 begin
-  if (globals.nper < globals.nopen) then
+  if (nper < nopen) then
   begin
-    globals.pulse_shape_a := globals.pulse_shape_a - globals.pulse_shape_b;
-    vwave2                := vwave2 + globals.pulse_shape_a;
-    lgtemp                := vwave2 * 0.028;
+    pulse_shape_a := pulse_shape_a - pulse_shape_b;
+    vwave2        := vwave2 + pulse_shape_a;
+    lgtemp        := vwave2 * 0.028;
     exit(lgtemp);
   end
   else
   begin
-    vwave2 := 0.0;
-    exit(0.0);
+    vwave2 := 0;
+    exit(0);
   end;
 end;
 
 
-const
-  B0: array [0 .. 223] of uint16 = (1200, 1142, 1088, 1038, 991, 948, 907, 869, 833, 799, 768, 738, 710, 683, 658, 634, 612, 590, 570, 551, 533, 515, 499, 483, 468, 454, 440, 427, 415, 403, 391, 380, 370, 360, 350, 341, 332, 323, 315, 307, 300, 292, 285,
-    278, 272, 265, 259, 253, 247, 242, 237, 231, 226, 221, 217, 212, 208, 204, 199, 195, 192, 188, 184, 180, 177, 174, 170, 167, 164, 161, 158, 155, 153, 150, 147, 145, 142, 140, 137, 135, 133, 131, 128, 126, 124, 122, 120, 119, 117, 115, 113, 111, 110,
-    108, 106, 105, 103, 102, 100, 99, 97, 96, 95, 93, 92, 91, 90, 88, 87, 86, 85, 84, 83, 82, 80, 79, 78, 77, 76, 75, 75, 74, 73, 72, 71, 70, 69, 68, 68, 67, 66, 65, 64, 64, 63, 62, 61, 61, 60, 59, 59, 58, 57, 57, 56, 56, 55, 55, 54, 54, 53, 53, 52, 52,
-    51, 51, 50, 50, 49, 49, 48, 48, 47, 47, 46, 46, 45, 45, 44, 44, 43, 43, 42, 42, 41, 41, 41, 41, 40, 40, 39, 39, 38, 38, 38, 38, 37, 37, 36, 36, 36, 36, 35, 35, 35, 35, 34, 34, 33, 33, 33, 33, 32, 32, 32, 32, 31, 31, 31, 31, 30, 30, 30, 30, 29, 29, 29,
-    29, 28, 28, 28, 28, 27, 27);
-var  skew: Integer;
 /// <summary>
 ///   function PITCH_SYNC_PAR_RESET
 ///
@@ -604,45 +584,51 @@ var  skew: Integer;
 ///
 ///   B0[nopen - 40] = 1920000 / (nopen * nopen)
 /// </summary>
-procedure pitch_synch_par_reset(var globals: TKlattGlobal; var frame: TKlattFrame);
+procedure TKlattSynth.pitch_synch_par_reset(var aFrame: TKlattFrame);
 var
   temp : Integer;
   temp1: Single;
+const
+  B0: array [0 .. 223] of uint16 = (1200, 1142, 1088, 1038, 991, 948, 907, 869, 833, 799, 768, 738, 710, 683, 658, 634, 612, 590, 570, 551, 533, 515, 499, 483, 468, 454, 440, 427, 415, 403, 391, 380, 370, 360, 350, 341, 332, 323, 315, 307, 300, 292, 285,
+    278, 272, 265, 259, 253, 247, 242, 237, 231, 226, 221, 217, 212, 208, 204, 199, 195, 192, 188, 184, 180, 177, 174, 170, 167, 164, 161, 158, 155, 153, 150, 147, 145, 142, 140, 137, 135, 133, 131, 128, 126, 124, 122, 120, 119, 117, 115, 113, 111, 110,
+    108, 106, 105, 103, 102, 100, 99, 97, 96, 95, 93, 92, 91, 90, 88, 87, 86, 85, 84, 83, 82, 80, 79, 78, 77, 76, 75, 75, 74, 73, 72, 71, 70, 69, 68, 68, 67, 66, 65, 64, 64, 63, 62, 61, 61, 60, 59, 59, 58, 57, 57, 56, 56, 55, 55, 54, 54, 53, 53, 52, 52,
+    51, 51, 50, 50, 49, 49, 48, 48, 47, 47, 46, 46, 45, 45, 44, 44, 43, 43, 42, 42, 41, 41, 41, 41, 40, 40, 39, 39, 38, 38, 38, 38, 37, 37, 36, 36, 36, 36, 35, 35, 35, 35, 34, 34, 33, 33, 33, 33, 32, 32, 32, 32, 31, 31, 31, 31, 30, 30, 30, 30, 29, 29, 29,
+    29, 28, 28, 28, 28, 27, 27);
 begin
-  if (frame.F0hz10 > 0) then
+  if (aFrame.F0Hz10 > 0) then
   begin
     // T0 is 4* the number of samples in one pitch period
-    globals.T0 := Round((40 * globals.samrate) / frame.F0hz10);
+    T0 := Round((40 * SampleRateHz) / aFrame.F0Hz10);
 
-    globals.amp_voice := DBtoLIN(frame.AVdb);
+    amp_voice := DBtoLIN(aFrame.AVdb);
 
     // Duration of period before amplitude modulation
-    globals.nmod := globals.T0;
-    if (frame.AVdb > 0) then
-      globals.nmod := globals.nmod shr 1;
+    nmod := T0;
+    if (aFrame.AVdb > 0) then
+      nmod := nmod shr 1;
 
     // Breathiness of voicing waveform
-    globals.amp_breth := DBtoLIN(frame.Aturb) * 0.1;
+    amp_breth := DBtoLIN(aFrame.Aturb) * 0.1;
 
     // Set open phase of glottal period where  40 <= open phase <= 263
-    globals.nopen := 4 * frame.Kopen;
+    nopen := 4 * aFrame.Kopen;
 
-    if ((globals.VoicingSource = IMPULSIVE) and (globals.nopen > 263)) then
-      globals.nopen := 263;
+    if ((VoicingSource = Impulsive) and (nopen > 263)) then
+      nopen := 263;
 
-    if (globals.nopen >= (globals.T0 - 1)) then
+    if (nopen >= (T0 - 1)) then
     begin
-      globals.nopen := globals.T0 - 2;
+      nopen := T0 - 2;
 
       //if (globals.quiet = FALSE) then
      //        raise Exception.Create('Glottal open period cannot exceed T0, truncated');
     end;
 
-    if (globals.nopen < 40) then
+    if (nopen < 40) then
     begin
       // F0 max = 1000 Hz
-      globals.nopen := 40;
-      if (globals.quiet = FALSE) then
+      nopen := 40;
+      if (Quiet = FALSE) then
       begin
 //        writeln('Warning: minimum glottal open period is 10 samples.');
 //        writeln(format('truncated, nopen = %d', [globals.nopen]));
@@ -650,70 +636,75 @@ begin
     end;
 
     // Reset a & b, which determine shape of "natural" glottal waveform
-    globals.pulse_shape_b := B0[globals.nopen - 40];
-    globals.pulse_shape_a := (globals.pulse_shape_b * globals.nopen) * 0.333;
+    pulse_shape_b := B0[nopen - 40];
+    pulse_shape_a := (pulse_shape_b * nopen) * 0.333;
 
     // Reset width of "impulsive" glottal pulse
-    temp := Round(globals.samrate / globals.nopen);
+    temp := Round(SampleRateHz / nopen);
 
-    SetABC(0, temp, globals.rgl, globals);
+    SetABC(0, temp, rgl);
 
     // Make gain at F1 about constant
-    temp1         := globals.nopen * 0.00833;
-    globals.rgl.a := globals.rgl.a * temp1 * temp1;
+    temp1 := nopen * 0.00833;
+    rgl.a := rgl.a * temp1 * temp1;
 
     // Truncate skewness so as not to exceed duration of closed phase of glottal period.
-    temp := globals.T0 - globals.nopen;
-    if (frame.Kskew > temp) then
+    temp := T0 - nopen;
+    if (aFrame.Kskew > temp) then
     begin
-      if (globals.quiet = FALSE) then
+      if (Quiet = FALSE) then
       begin
 //        writeln(format('Kskew duration=%d > glottal closed period=%d, truncate\n',
 //        [
 //          frame.Kskew, globals.T0 - globals.nopen
 //        ]));
       end;
-      frame.Kskew := temp;
+      aFrame.Kskew := temp;
     end;
-    if (skew >= 0) then
-      skew := frame.Kskew
+    if (Skew >= 0) then
+      Skew := aFrame.Kskew
     else
-      skew := -frame.Kskew;
+      Skew := -aFrame.Kskew;
 
     // Add skewness to closed portion of voicing period
-    globals.T0 := globals.T0 + skew;
-    skew       := -skew;
+    T0 := T0 + Skew;
+    Skew       := -Skew;
   end
   else
   begin
-    globals.T0            := 4; // Default for f0 undefined
-    globals.amp_voice     := 0.0;
-    globals.nmod          := globals.T0;
-    globals.amp_breth     := 0.0;
-    globals.pulse_shape_a := 0.0;
-    globals.pulse_shape_b := 0.0;
+    T0            := 4; // Default for f0 undefined
+    amp_voice     := 0;
+    nmod          := T0;
+    amp_breth     := 0;
+    pulse_shape_a := 0;
+    pulse_shape_b := 0;
   end;
 
   //Reset these pars pitch synchronously or at update rate if f0=0
-  if ((globals.T0 <> 4) or (globals.current_sample = 0)) then
+  if ((T0 <> 4) or (CurrentSample = 0)) then
   begin
     // Set one-pole low-pass filter that tilts glottal source
-    globals.decay := (0.033 * frame.TLTdb);
+    Decay := (0.033 * aFrame.TLTdb);
 
-    if (globals.decay > 0.0) then
-      globals.onemd := 1.0 - globals.decay
+    if (Decay > 0) then
+      onemd := 1 - Decay
     else
-      globals.onemd := 1.0;
+      onemd := 1;
   end;
 end;
 
-var
-  noise, voice, vlast, glotlast, sourc: Single;
+function TKlattSynth.Render: TArray<single>;
+var f:TKlattFrame; s:TArray<Single>;
+begin
+  SetLength(s, cMaxSampleRateHz);
+  for f in Frames do
+  //
+end;
 
 /// <summary>
 /// Converts synthesis parameters to a waveform.
 /// </summary>
-procedure ParWave(var globals: TKlattGlobal; var frame: TKlattFrame; var output: TArray<Single>);
+procedure TKlattSynth.RenderParWave(var aFrame: TKlattFrame; var aOutput: TArray<Single>);
 var
   i                         : Integer;
   temp, outbypas            : Single;
@@ -722,25 +713,25 @@ var
   casc_next_in, par_glotout : Single;
 begin
   // get parameters for next frame of speech
-  InitFrame(globals, frame); // get parameters for next frame of speech
-  Flutter(globals, frame);    // add f0 flutte,
+  InitFrame(aFrame); // get parameters for next frame of speech
+  Flutter(aFrame);    // add f0 flutter,
 
 
   // MAIN LOOP, for each output sample of current frame:
-  for i := 0 to globals.SamplesPerFrame - 1 do
+  for i := 0 to SamplesPerFrame - 1 do
   begin
-    Inc(globals.current_sample);
+    Inc(CurrentSample);
 
     // Get low-passed random number for aspiration and frication noise
-    noise := GenerateNoise(noise, globals);
+    noise := GenerateNoise(noise);
 
     // Amplitude modulate noise (reduce noise amplitude during
     // second half of glottal period) if voicing simultaneously present.
-    if (globals.nper > globals.nmod) then
+    if (nper > nmod) then
       noise := noise * 0.5;
 
     // Compute frication noise
-    frics := globals.amp_frica * noise;
+    frics := amp_frica * noise;
 
 
     // Compute voicing waveform. Run glottal source simulation at 4
@@ -748,30 +739,30 @@ begin
     // period of female voice.
     for n4 := 0 to 3 do
     begin
-      case (globals.VoicingSource) of
-        IMPULSIVE : voice := ImpulsiveSource(globals);
-        NATURAL   : voice := NaturalSource(globals);
+      case (VoicingSource) of
+        Impulsive : voice := ImpulsiveSource;
+        Natural   : voice := NaturalSource;
       //SAMPLED   : voice := sampled_source(globals);
       end;
 
       // Reset period when counter 'nper' reaches T0
-      if (globals.nper >= globals.T0) then
+      if (nper >= T0) then
       begin
-        globals.nper := 0;
-        pitch_synch_par_reset(globals, frame);
+        nper := 0;
+        pitch_synch_par_reset(aFrame);
       end;
 
       //  Low-pass filter voicing waveform before downsampling from 4*samrate
       //  to samrate samples/sec.  Resonator f=.09*samrate, bw=.06*samrate
-      voice := Resonator(globals.rlp, voice);
+      voice := rlp.Resonate(voice);
 
       // Increment counter that keeps track of 4*samrate samples per sec
-      Inc(globals.nper);
+      Inc(nper);
     end;
 
     //  Tilt spectrum of voicing source down by soft low-pass filtering,
     // amount of tilt determined by TLTdb
-    voice := (voice * globals.onemd) + (vlast * globals.decay);
+    voice := (voice * onemd) + (vlast * Decay);
     vlast := voice;
 
     {
@@ -779,42 +770,42 @@ begin
       determined by parameter Aturb Use nrand rather than noise because
       noise is low-passed.
     }
-    if (globals.nper < globals.nopen) then
-      voice := voice + (globals.amp_breth * globals.nrand);
+    if (nper < nopen) then
+      voice := voice + (amp_breth * nrand);
 
     // Set amplitude of voicing
-    glotout     := globals.amp_voice * voice;
-    par_glotout := globals.par_amp_voice * voice;
+    glotout     := amp_voice * voice;
+    par_glotout := amp_par_voice * voice;
 
     // Compute aspiration amplitude and add to voicing source
-    aspiration := globals.amp_aspir * noise;
+    aspiration := amp_aspir * noise;
     glotout    := glotout + aspiration;
 
     par_glotout := par_glotout + aspiration;
 
     //  Cascade vocal tract, excited by laryngeal sources.
     //  Nasal antiresonator, then formants FNP, F5, F4, F3, F2, F1
-    if (globals.synthesis_model <> ALL_PARALLEL) then
+    if (SynthesisModel <> TSynthesisModel.AllParallel) then
     begin
-      casc_next_in := AntiResonator(globals.rnz, glotout);
-      casc_next_in := Resonator(globals.rnpc, casc_next_in);
+      casc_next_in := rnz.AntiResonate(glotout);
+      casc_next_in := rnpc.Resonate(casc_next_in);
       // Do not use unless sample rate >= 16000
-      if (globals.nfcascade >= 8) then casc_next_in := Resonator(globals.rc[8], casc_next_in);
+      if (nfcascade >= 8) then casc_next_in := rc[8].Resonate(casc_next_in);
       // Do not use unless sample rate >= 16000
-      if (globals.nfcascade >= 7) then casc_next_in := Resonator(globals.rc[7], casc_next_in);
+      if (nfcascade >= 7) then casc_next_in := rc[7].Resonate( casc_next_in);
       { Do not use unless long vocal tract or sample rate increased }
-      if (globals.nfcascade >= 6) then casc_next_in := Resonator(globals.rc[6], casc_next_in);
-      if (globals.nfcascade >= 5) then casc_next_in := Resonator(globals.rc[5], casc_next_in);
-      if (globals.nfcascade >= 4) then casc_next_in := Resonator(globals.rc[4], casc_next_in);
-      if (globals.nfcascade >= 3) then casc_next_in := Resonator(globals.rc[3], casc_next_in);
-      if (globals.nfcascade >= 2) then casc_next_in := Resonator(globals.rc[2], casc_next_in);
-      if (globals.nfcascade >= 1) then output[i]    := Resonator(globals.rc[1], casc_next_in);
-      output[i] := output[i];
+      if (nfcascade >= 6) then casc_next_in := rc[6].Resonate( casc_next_in);
+      if (nfcascade >= 5) then casc_next_in := rc[5].Resonate( casc_next_in);
+      if (nfcascade >= 4) then casc_next_in := rc[4].Resonate( casc_next_in);
+      if (nfcascade >= 3) then casc_next_in := rc[3].Resonate( casc_next_in);
+      if (nfcascade >= 2) then casc_next_in := rc[2].Resonate( casc_next_in);
+      if (nfcascade >= 1) then aOutput[i]    := rc[1].Resonate( casc_next_in);
+      aOutput[i] := aOutput[i];
     end
     else
     begin
       // we are not using the cascade tract, set out to zero
-      output[i] := 0.0;
+      aOutput[i] := 0;
     end;
 
     // Excite parallel F1 and FNP by voicing waveform
@@ -827,38 +818,38 @@ begin
       parallel resonators is frication plus first difference of
       voicing waveform.
     }
-    output[i] := output[i] + Resonator(globals.rp[1], sourc);
-    output[i] := output[i] + Resonator(globals.rnpp, sourc);
+    aOutput[i] := aOutput[i] + rp[1].Resonate(sourc);
+    aOutput[i] := aOutput[i] + rnpp.Resonate(sourc);
 
     sourc    := frics + par_glotout - glotlast;
     glotlast := par_glotout;
 
-    output[i] := Resonator(globals.rp[6], sourc) - output[i];
-    output[i] := Resonator(globals.rp[5], sourc) - output[i];
-    output[i] := Resonator(globals.rp[4], sourc) - output[i];
-    output[i] := Resonator(globals.rp[3], sourc) - output[i];
-    output[i] := Resonator(globals.rp[2], sourc) - output[i];
+    aOutput[i] := rp[6].Resonate(sourc) - aOutput[i];
+    aOutput[i] := rp[5].Resonate(sourc) - aOutput[i];
+    aOutput[i] := rp[4].Resonate(sourc) - aOutput[i];
+    aOutput[i] := rp[3].Resonate(sourc) - aOutput[i];
+    aOutput[i] := rp[2].Resonate(sourc) - aOutput[i];
 
-    outbypas  := globals.amp_bypas * sourc;
-    output[i] := outbypas - output[i];
-    output[i] := output[i] / 10;
+    outbypas  := amp_bypas * sourc;
+    aOutput[i] := outbypas - aOutput[i];
+    aOutput[i] := aOutput[i] / 10;
 
-    if (globals.outsl <> OutputNone) then
+    if (OutputChannel <> OutputNone) then
     begin
-      case globals.outsl of
+      case OutputChannel of
         OutputNone:           ;
-        OutputVoice:          output[i] := voice;
-        OutputAspiration:     output[i] := aspiration;
-        OutputFrics:          output[i] := frics;
-        OutputGlotout:        output[i] := glotout;
-        OutputPar_glotout:    output[i] := par_glotout;
-        OutputOutbypas:       output[i] := outbypas;
-        OutputSourc:          output[i] := sourc;
+        OutputVoice:          aOutput[i] := voice;
+        OutputAspiration:     aOutput[i] := aspiration;
+        OutputFrics:          aOutput[i] := frics;
+        OutputGlotout:        aOutput[i] := glotout;
+        OutputPar_glotout:    aOutput[i] := par_glotout;
+        OutputOutbypas:       aOutput[i] := outbypas;
+        OutputSourc:          aOutput[i] := sourc;
       end;
 
-      output[i] := Resonator(globals.rout, output[i]);
+      aOutput[i] := rout.Resonate(aOutput[i]);
 
-      temp := output[i] * globals.amp_gain0/1000;
+      temp := aOutput[i] * amp_gain0/1000;
 
       (* Convert back to integer *)
       if (temp < -32768) then
@@ -867,9 +858,36 @@ begin
       if (temp > 32767) then
         temp := 32767;
 
-      output[i] := temp;
+      aOutput[i] := temp;
     end;
   end;
+end;
+
+{ TResonator }
+
+function TResonator.AntiResonate(aInput: Single): Single;
+var
+  x: Single;
+begin
+  x := a * aInput +
+       b * p[1] +
+       c * p[2];
+
+  p[2]   := p[1];
+  p[1]   := aInput;
+  Result := x;
+end;
+
+function TResonator.Resonate(input: Single): Single;
+var
+  x: Single;
+begin
+  { This is a generic resonator function. Internal memory for the resonator,
+    is stored in the globals structure. }
+  x      := (a * input + b * p[1] + c * p[2]);
+  p[2]   := p[1];
+  p[1]   := x;
+  Result := x;
 end;
 
 end.

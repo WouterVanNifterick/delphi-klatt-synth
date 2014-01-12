@@ -48,33 +48,28 @@ type
     MsPerFrame    : Integer;
     DoOutputRawSample : Boolean;
     OutputByteOrder   : byte;
+    procedure Init;
   end;
 
-procedure InitAppSettings(var AppSettings: TAppSettings);
+procedure TAppSettings.Init;
 begin
-  AppSettings := default(TAppSettings);
-  AppSettings.InFileName := '';
-  AppSettings.OutFileName := '';
-  AppSettings.SampeFileName := '';
-  AppSettings.MsPerFrame := 10;
-  AppSettings.DoOutputRawSample := FALSE;
+  self := default(TAppSettings);
+  InFileName        := '';
+  OutFileName       := '';
+  SampeFileName     := '';
+  MsPerFrame        := 10;
+  DoOutputRawSample := FALSE;
 end;
 
 procedure Main;
 var
-  InFile        : TextFile;
   OutFile       : File of byte;
-  Globals       : TKlattGlobal;
-  Frame         : TKlattFrame;
-  FrameParamPtr : ^Integer;
-  high_byte     ,
-  low_byte      : byte;
-  value         : LongWord;
+  KlattSynth    : TKlattSynth;
   FrameSamples  : TArray<single>;
-  FrameSampleIndex ,
-  ParIndex      : Integer;
-  Sample        : Integer;
-  AppSettings:TAppSettings;
+  FrameSampleIndex : Integer;
+  Sample        : uint16;
+  AppSettings   : TAppSettings;
+  FrameIndex    : Integer;
 begin
   if(ParamCount=0) then
   begin
@@ -82,38 +77,35 @@ begin
     halt(1);
   end;
 
-  InitAppSettings(AppSettings);
+  AppSettings.Init;
+
+  KlattSynth := TKlattSynth.Create;
 
   SetLength(FrameSamples, cMaxSampleRateHz);
-
-  Frame := default (TKlattFrame);
-
-  GlobalsInit(Globals);
-
 
   CommandLine.ProcessKeys( procedure(const key:char; const name,value:string )
     begin
       case Key of
         'i': AppSettings.InFileName := Value;
         'o': AppSettings.OutFileName := Value;
-        'q': Globals.quiet := TRUE;
-        't': Globals.outsl := TOutputChannel(StrToInt(Value));
-        'c': begin Globals.synthesis_model := CASCADE_PARALLEL; Globals.nfcascade := 5; end;
-        's': Globals.samrate := StrToInt(Value);
+        'q': KlattSynth.Quiet := TRUE;
+        't': KlattSynth.OutputChannel := TOutputChannel(StrToInt(Value));
+        'c': begin KlattSynth.SynthesisModel := CascadeParallel; KlattSynth.nfcascade := 5; end;
+        's': KlattSynth.SampleRateHz := StrToInt(Value);
         'f': AppSettings.MsPerFrame := StrToInt(Value);
 //      'v': Globals.glsource :=  StrToInt(Value);
         'V': AppSettings.SampeFileName := Value;
         'h': begin usage(); halt(1); end;
-        'n': Globals.nfcascade := StrToInt(Value);
-        'F': Globals.f0_flutter := StrToInt(Value);
+        'n': KlattSynth.nfcascade := StrToInt(Value);
+        'F': KlattSynth.f0_flutter := StrToInt(Value);
         'r': begin AppSettings.DoOutputRawSample := TRUE; AppSettings.OutputByteOrder := StrToInt(Value); end;
       end;
     end
   );
-  Globals.SamplesPerFrame := Round((Globals.samrate * AppSettings.MsPerFrame) / 1000);
+  KlattSynth.SamplesPerFrame := Round((KlattSynth.SampleRateHz * AppSettings.MsPerFrame) / 2000);
 
   {
-  if SampeFileName <> '' then
+  if SampleFileName <> '' then
   begin
     AssignFile(InFile, SampeFileName);
     Reset(InFile);
@@ -132,59 +124,39 @@ begin
     Halt(2);
   end;
 
-  AssignFile(InFile, AppSettings.InFileName);
-  Reset(InFile);
-
   if AppSettings.OutFileName = '' then
-    Globals.quiet := TRUE
+    KlattSynth.Quiet := True
   else
   begin
     AssignFile(OutFile, AppSettings.OutFileName);
     Rewrite(OutFile);
   end;
 
-  InitParWave(Globals);
+  KlattSynth.InitParWave;
+  WriteLn('Reading ',AppSettings.InFileName,' ...');
+  KlattSynth.LoadFromFile(AppSettings.InFileName);
 
-  while not Eof(InFile) do
+  WriteLn(length(KlattSynth.Frames),' frames -> Rendering to ',length(KlattSynth.Frames)*KlattSynth.SamplesPerFrame, ' samples ...');
+  WriteLn('Saving ', AppSettings.OutFileName,' ...');
+  for FrameIndex := 0 to High(KlattSynth.Frames) do
   begin
-    FrameParamPtr := @Frame;
-    for ParIndex := 1 to cNumberOfParameters do
-    begin
-      read(InFile, value);
-      FrameParamPtr^ := value;
-      Inc(FrameParamPtr);
-    end;
+    KlattSynth.RenderParWave(KlattSynth.Frames[FrameIndex], FrameSamples);
 
-    ParWave(Globals, Frame, FrameSamples);
-
-    for FrameSampleIndex := 0 to Globals.SamplesPerFrame-1 do
+    for FrameSampleIndex := 0 to KlattSynth.SamplesPerFrame-1 do
     begin
       Sample := Round(FrameSamples[FrameSampleIndex]);
       if AppSettings.DoOutputRawSample then
       begin
-        Sample := Round((Sample / 2) + 32768) and $FFFF;
-        low_byte  := Byte(Sample and $FF);
-        high_byte := Byte(Sample shr 8);
-
-        if (AppSettings.OutputByteOrder = 1) then
-        begin
-          Write(OutFile, high_byte);
-          Write(OutFile, low_byte);
-        end
-        else
-        begin
-          Write(OutFile, low_byte);
-          Write(OutFile, high_byte);
-        end;
+        Sample := Round((Sample / 256) + 32768) and $FFFF;
+        Write(OutFile, Sample);
       end
       else
-        Writeln(format('%d', [FrameSamples[FrameSampleIndex]]));
+        Writeln(format('%d', [round(FrameSamples[FrameSampleIndex])]));
     end;
   end;
-
-  if AppSettings.InFileName = '' then CloseFile(InFile);
-  if AppSettings.OutFileName = '' then CloseFile(OutFile);
-  if (not Globals.quiet) then  Writeln('Done');
+  if AppSettings.OutFileName <> '' then CloseFile(OutFile);
+  if (not KlattSynth.Quiet) then  Writeln('Done');
+  WriteLn('Done.');
 end;
 
 begin
